@@ -20,9 +20,6 @@ knitr::opts_chunk$set(
   h4 {
     font-size: 20px !important;
   }
-  td, th {
-    padding: 0.5em !important;
-  }
   p.caption {
     width: 80%; 
     margin-left: 20%; margin-bottom: 2em;
@@ -41,6 +38,11 @@ knitr::opts_chunk$set(
   .footer_spacer {
     margin-top: 4em
   }
+  
+  th.dt-right {
+    padding: 0 1.5em !important;
+    text-align: center !important;
+  }
 </style>
 
 ## Synopsis
@@ -57,14 +59,14 @@ Data analysis will be performed in **R**, making use of the following **R** pack
 
 ```{r libraries, warning = FALSE, message = FALSE}
   library(data.table)
-  library(xtable)
+  library(DT)
   library(reshape2)
   library(ggplot2)
 ```
 
 Data is acquired in comma delimited format from a [mirrored bz2 archive](http://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2) containing NOAA Storm Database data from January 1950 to November 2011. If not already present in the working directory, it will be acquired from online. This process may be time- and memory-conusming.
 
-We will extract only columns of interest for our analysis -- begin date, event type, and data columns related to fatalities, injuries, property damage, and crop damage.
+We will extract only columns of interest for our analysis -- begin date, event type, and data columns related to fatalities, injuries, property damage, and crop damage, and damage modifiers.
 
 ```{r read, cache = TRUE}
   f <- "repdata-data-StormData.csv.bz2"
@@ -98,7 +100,7 @@ We will extract only columns of interest for our analysis -- begin date, event t
 ### Year selection (1993-2011)
 The [NOAA Storm Events Database page](http://www.ncdc.noaa.gov/stormevents/details.jsp) documents that in earlier years, only data from a small handful of categories (Tornado, Thunderstorm Wind, and Hail) were gathered prior to 1996. To avoid skewed results, we will only consider data from years in which a wide range of event types were recorded.
 
-To aid our exploratory analysis, we convert the beginning date `BGN_DATE` in the data to a numerical year value and investigate the number of unique event types (`EVTYPE`) in the data by year. In particular, we're looking for years in which more than three event types were recorded.
+To help begin our exploratory analysis, we convert the beginning date `BGN_DATE` in the data to a numerical year value and investigate the number of unique event types (`EVTYPE`) in the data by year. In particular, we're looking for years in which more than three event types were recorded.
 
 ```{r explore_year, cache = TRUE}
   # Obtain year and store in new variable.
@@ -110,7 +112,7 @@ To aid our exploratory analysis, we convert the beginning date `BGN_DATE` in the
   dt[, .(uniques = length(unique(EVTYPE))), by = year][uniques > 3]
 ```
 
-There appears to be a discrepancy here. The NOAA page refers to a more recent version of the database, and it's possible that different decisions have been made as a result. Let us confirm both that only Tornado, Thunderstorm Wind, and Hail data are available before 1993, and also that a wide range of event types are available from 1993 onward.
+There appears to be a discrepancy here in which; `EVTYPE` diversity seems to begin in 1993 rather than 1996. The NOAA website now refers to a more recent version of the database, and it's possible that different decisions have been made in the meantime. Let us confirm both that only Tornado, Thunderstorm Wind, and Hail data are available before 1993, and also that a wide range of event types are available from 1993 onward.
    
 ```{r explore_1993}
   # Confirm pre-1993 EVTYPE variation.
@@ -124,7 +126,7 @@ There appears to be a discrepancy here. The NOAA page refers to a more recent ve
   dt.explore <- dt[year >= 1996 & year < 1999, .(records = nrow(.SD)), by = EVTYPE]
   dt.explore[order(-records)][1:10]
 ```  
-A breadth of `EVTYPE` categories is present in both 1993-1995 and 1996-1998, with no strong evidence for excluding the former years. With that in mind, we will select **1993 to 2011** as the period for this analysis on the basis that the event types recorded in this period appear are wide-ranging. 
+A breadth of `EVTYPE` categories is present in both 1993-1995 and 1996-1998, with no compelling justification present for excluding the former years. With that in mind, we select **1993 to 2011** as the period for this analysis. 
 
 ```{r process_year}
   # Process data to remove data prior to 1993.
@@ -151,9 +153,9 @@ We proceed to investigate records (if any) associated with the remaining ambiguo
   dt[CROPDMGEXP %in% c("?") & CROPDMG > 0, cols, with = FALSE]
 ```
 
-We feel it a best guess that in such cases, no multipliers are to be applied; that **+**, **-**, and **?** indicate uncertainty about the damage provided without changes in order of magnitude. We must caution that possibly arbitrary amounts of error may be introduced by any assumption (or lack thereof) regarding unknown exponents. However, from our exploration of the data, we feel large-scale errors are unlikely to result from our interpretation.
+We take a conservative approach and, i n the absence of specific information to the contrary, will regard **+**, **-**, and **?** to indicate same-order-of-magnitude uncertainty. Additionally, given the small number of records involved and the extremely large sums of cumulative damage in USD over this timeframe, we feel the risk of having introduced large-scale errors with this decision is extremely minimal. 
 
-With that caveat in mind, we may now calculate true property and crop damage values to aid in data summary.
+We may now calculate true property and crop damage values to aid in data summary.
 
 ```{r process_exp}
   # Work with copies of original variables.
@@ -174,7 +176,7 @@ With that caveat in mind, we may now calculate true property and crop damage val
 ```  
 ### Sum data by EVTYPE
 
-We will now sum over all measures in the 1993-2011 data by provided event type. This paves the way for our exploratory analysis of `EVTYPE`.
+We will now obtain cumulative damage measures by summing over all 1993-2011 records in the data by provided event type. This paves the way for our exploratory analysis of `EVTYPE`.
 
 ```{r dt_new_format}
   dt.sum <- dt[,
@@ -203,7 +205,7 @@ The NOAA currently maintains a list of 48 distinct event types, but we find a mu
 ```  
 As we saw earlier with our look at total unique `EVTYPE` by year, a number of the earlier years in the dataset are particularly responsible for this variation.
 
-Fortunately, **Instruction 10-1605** offers considerable guidance in resolving the discrepancy. A large number of these `EVTYPE` are spelling variations or may be explicitly coerced to one of the 48 NWS event types. What remains are largely judgment calls between official categories. A few`EVTYPE` were deemed to have remained not coerceable and were categorized in "Other" categories.
+Fortunately, **NWS Instruction 10-1605** offers considerable guidance in resolving the discrepancy. A large number of these `EVTYPE` are spelling variations or may be explicitly coerced to one of the 48 NWS event types. What remains are largely judgment calls between official categories. A few`EVTYPE` were deemed to have remained not coerceable and were categorized in "Other" categories.
 
 We will focus only on coercing events with nonzero impact in this timeframe to the official NWS list. Full coercion code is extremely verbose and is removed from view here, but please note that it is reproduced in the **Appendix C** in the interests of full reproducibility and documentation. 
 
@@ -276,6 +278,12 @@ A `Winter Storm` is defined an event featuring "more than one significant hazard
 Examples of this included "snow and ice", "snow and sleet", "sleet and ice", "heavy snow and blowing snow", and "snow, sleet, and ice". If it's not clear that a local warning criteria of some kind has been met (for example, by "High Winds", "Sleet", or "Heavy Snow"), then we default to the weaker classification of `Winter Weather` in keeping with a conservative communicated approach regarding `Winter Storm`:
 
 Blizzards, as previously noted, were reserved for events specifically named as such.
+
+#### Note on Winter Ambiguity
+
+In general, the lines of distinction between varying categories of winter weather events were the most frequent and ambiguous in the dataset. 
+
+In the final analysis, we will see that this does not make a significant impact to the top-ranked outiers for damage-causing events. However, we will also discuss a view of major winter categories as a whole.
 
 #### "Other" Events
 
@@ -861,15 +869,15 @@ Under the guidelines documented above, we construct a manual mapping list named 
   # Check unique events in resulting data.
   length(dt.results$event)
   # Ensure no NAs have resulted from EVTYPE coercion.
-  complete.cases(unique(dt.sum$event))
+  !is.na(unique(dt.sum$event))
 ```  
-Note that there are three "Other" event types included in `dt.results`.
+Note that there are three "Other" event types included in `dt.results`. If all 48 NWS events produced at least one damage-causing record in the data, then `dt.results` will contain 51 events.
 
 With the `EVTYPE` so coerced in the new `event` variable, we are now ready to present results.
 
 ## Results
 
-We represent our results in two single panel plots, one for personal health impact and one for economic impact. 
+We represent our results in panel plots, one for personal health impact and one for economic impact. 
 
 Despite the wide spread of the data, we chose not to use a log scale in order to more clearly illustrate the gulf of the discrepancy between top events and lower events.
 
@@ -931,16 +939,16 @@ In bears noting that many of the top events in this order are also closely relat
 ```{r results_person_percentage, warning = FALSE, message = FALSE}
   # Organize contributing events by tiers.
   tiers.person <- list(
-    tornado = "TORNADO",
-    heat = c("EXCESSIVE HEAT", "HEAT"),
-    flood = c("FLOOD", "FLASH FLOOD"),
-    thunderstorm = c("THUNDERSTORM WIND", "LIGHTNING"),
-    winter = c(
+    Tornado = "TORNADO",
+    Heat = c("EXCESSIVE HEAT", "HEAT"),
+    Flood = c("FLOOD", "FLASH FLOOD"),
+    Thunderstorm = c("THUNDERSTORM WIND", "LIGHTNING"),
+    Winter = c(
       "ICE STORM", "WINTER STORM", "WINTER WEATHER",
       "HEAVY SNOW", "BLIZZARD", "SLEET",
       "EXTREME COLD/WIND CHILL", "COLD/WIND CHILL"
     ),
-    misc = c(
+    Misc = c(
       "HURRICANE/TYPHOON", "TROPICAL STORM",
       "HEAVY RAIN", "STRONG WIND", "HIGH WIND",
       "HIGH SURF", "RIP CURRENT",
@@ -1050,9 +1058,9 @@ Tornados are primarily responsible for recording personal health damage in the U
 
 After tornadoes, a quartet of event groups each contribute sizably and similarly to the total. A larger number of miscellaneous event types fill in the remainder. Overall, the causes of personal health damage in the U.S. are quite diverse.
 
-1. Tornado  
+1. Tornadoes
 1. Thunderstorms, Heat-related events, Flooding, and Winter-related events
-1. Miscellaneous low-order impact event types
+1. A number of miscellaneous event types with lower-order impact
 
 #### Top economic impact events
 
@@ -1063,11 +1071,9 @@ Beyond that, a small collection of events contribute on the order of low single 
 1. Flooding  
 1. Hurricanes/Typhoons, and Tropical Storms 
 1. Storm Surges
-1. Tornadoes, Storms (winds and rains), Winter events, Jail, Drought, and Wildfire (all on a much smaller scale)
+1. Tornadoes, Storms (winds and rains), Winter events, Hail, Drought, and Wildfire (all on a much smaller scale)
 
-#### Caveats
-
-The results of this study bear a number of caveats and context notes.
+#### Caveats and Context
 
 1. Source data was messy and required significant cleaning, which is documented but not certified by the NWS or NOAA.
 1. Only cumulative impact was considered, rather than impact *incidence* or *average* impact. The focus was on a "sum total" picture of recorded data in the United States.
@@ -1077,7 +1083,7 @@ The results of this study bear a number of caveats and context notes.
 
 ### Appendix A: The 48 NWS event types
 
-These are defined and explained in NWS Instruction 10-1605. In our data, to avoid confusion, we have capitalized every letter in `event` names.
+These are defined and explained in NWS Instruction 10-1605. As represented in our data, we have capitalized every letter in `event` names. All 48 distinct event types produced at least one damage-causing record from 1993 to 2011.
 
 1. Astronomical Low Tide  
 1. Avalanche  
@@ -1142,7 +1148,7 @@ The construction of our coercion mapping list, in a variable named `event.coerci
 ```
 
 ### Appendix D: Full Results
-Our results were represented visually in the report. The full data is printed here as a detailed reference. The `xtable` package is used to present the `data.table` output in more readable format. This table is ordered by total economic impact (descending).
+Our results were represented visually in the report. The full data is printed here as a detailed reference. The `DT` package is used to present the `data.table` output in readable, interactive format.
 
 ```{r appendix_full_data, results = "asis"}
   # Add "Totals" row to results summary.
@@ -1152,8 +1158,8 @@ Our results were represented visually in the report. The full data is printed he
       Fatalities = sum(dt.results$fatalities),
       Injuries = sum(dt.results$injuries),
       Total = sum(dt.results$totalPerson),
-      "Property Damage" = sum(dt.results$prop),
-      "Crop Damage" = sum(dt.results$crop),
+      Property = sum(dt.results$prop),
+      Crop = sum(dt.results$crop),
       "Total Damage" = sum(dt.results$totalDamage)
     ),
     dt.results[order(-totalDamage),
@@ -1162,23 +1168,26 @@ Our results were represented visually in the report. The full data is printed he
         Fatalities = fatalities,
         Injuries = injuries,
         Total = totalPerson,
-        "Property Damage" = prop,
-        "Crop Damage" = crop,
+        Property = prop,
+        Crop = crop,
         "Total Damage" = totalDamage
       )
     ]
   )
-  # Use xtable to print in nice format.
-  print(
-    xtable(
-      dt.results.summary,
-      caption = "Table 1: Personal health and economic damage (USD) from NOAA Storm Events Database, 1993-2011",
-      digits = c(0, 0, 0, 0, 0, -3, -3, -3)
-    ), 
-    type = "html",
-    caption.placement = "top"
-  )
-```
+  
+
+  # Use DT library to print in interactive format.
+  DT::datatable(dt.results.summary,
+    options = list(pageLength = 52),
+    class = 'cell-border stripe',
+    caption = 
+      "Table 1: Personal health and economic damage (USD) from NOAA Storm Events Database, 1993-2011"
+  ) %>% 
+    formatCurrency(c("Fatalities", "Injuries", "Total"), currency = "") %>%
+    formatCurrency(c("Property", "Crop", "Total Damage"))
+
+```  
+
 ## Final Remarks
 Thank you for taking the time to review this report! Your comments and feedback are appreciated!
 
