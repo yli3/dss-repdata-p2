@@ -39,7 +39,7 @@ knitr::opts_chunk$set(
     padding: 2em 0 2em 0;
   }
   .footer_spacer {
-    margin-top: 6em
+    margin-top: 4em
   }
 </style>
 
@@ -277,7 +277,7 @@ Examples of this included "snow and ice", "snow and sleet", "sleet and ice", "he
 
 Blizzards, as previously noted, were reserved for events specifically named as such.
 
-#### "Other" Events.
+#### "Other" Events
 
 There remained events that were not coerced to any of the existing 48 NWS categories. These were instead coerced to one of the following categories:
 
@@ -875,9 +875,9 @@ Despite the wide spread of the data, we chose not to use a log scale in order to
 
 Another aim of the panel plot is to illustrate relative percentages of total personal or economic impact from each of the constituent categories. For example, if injuries outnumber fatalities significantly, we want this to be visually apparent.
 
-### Person Impact
+### Personal Health Impact
 
-```{r results_plot_person, fig.width = 10, fig.height = 10, fig.cap = "Figure 1: Results (Person)", results = "asis"}
+```{r results_plot_personal, fig.width = 10, fig.height = 10, fig.cap = "Figure 1: Results (Personal Health)", results = "asis"}
   # Melt data to narrow form for plotting.
   dt.person <- dt.results[
     order(-totalPerson, -fatalities, -injuries),
@@ -904,12 +904,23 @@ Another aim of the panel plot is to illustrate relative percentages of total per
     theme(legend.position="none") +
     theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
     labs(x = "Event Type\n", y = "\nPerson Count") +
-    labs(title = "Personal Harm from Severe Weather Events in the U.S. 1993-2011\n")
+    labs(title = "Personal Harm from Severe Weather Events in the U.S. 1993-2011\n")  
+  
+  
+  
+  
 ```  
+
+
+
 In terms of total person count impact, we observe the following Top 5:
 
 ```{r results_person_top_5}
+  
+  
   dt.person[1:5]
+  
+  
 ```  
 
 **Tornadoes** are overwhelmingly top offenders, with a significant share of their personal health impact coming from injuries rather than fatalities. In fatalities alone, **heat** related events figure most prominently.
@@ -953,6 +964,8 @@ In bears noting that many of the top events in this order are also closely relat
 ### Economic Impact
 
 ```{r results_plot_economic, fig.width = 10, fig.height = 10, fig.cap = "Figure 2: Results (Economic)", results = "asis"}
+  
+  
    # Melt data to narrow form for plotting.
   dt.econ <- dt.results[
     order(-totalDamage, -prop, -crop),
@@ -978,7 +991,7 @@ In bears noting that many of the top events in this order are also closely relat
     theme(legend.position = "none") +
     theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
     labs(x = "Event Type\n", y = "\n(Unadjusted) USD") +
-    labs(title = "Economic Damage (USD) from Severe Weather Events in the U.S. 1993-2011\n")
+    labs(title = "Economic Damage (USD) from Severe Weather Events in the U.S. 1993-2011\n")  
 ```  
 
 In terms of total economic impact, we observe the following top 5 (in billions of USD):
