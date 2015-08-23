@@ -1,0 +1,995 @@
+---
+title: "Impacts of Severe Weather Events in the United States"
+author: "Student"
+date: "August 14, 2015"
+output: html_document
+---
+
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(
+  cache = FALSE
+)
+```
+<style>
+  blockquote {
+    font-size: inherit !important;
+    color: #666;
+  }
+  td, th {
+    padding: 0.5em !important;
+  }
+</style>
+
+## Synopsis
+
+In this report we explore the types of severe weather events in the United States that have historically been the most impactful. We use data collected from 1950 to 2011 in the [NOAA Storm Events Database](https://www.ncdc.noaa.gov/stormevents/ftp.jsp). We report cumulative measures of personal harm (fatalities, injuries, and their sum) and economic cost (property damage, crop damage, and their sum) across event types [defined in National Weather Service Instruction 10-1605](https://www.ncdc.noaa.gov/stormevents/pd01016005curr.pdf).
+
+Our analysis considers a 1993 to 2011 subset of the data on the basis that this period contains more complete observations across different event types. Additionally, we make a best faith effort to correct significant gaps between data and documentation (in particular mispellings and ambiguities in recorded event types) according to NWS guidelines.
+
+Main results and are discussed and presented by panel plots. A full table of results is provided in the appendix. All code required to fully reproduce our results from the given data is included.
+
+## Data Processing
+
+Data analysis will be performed in **R**, making use of the following **R** packages:
+
+```{r libraries, warning = FALSE, message = FALSE}
+  library(data.table)
+  library(xtable)
+  library(reshape2)
+  library(ggplot2)
+```
+
+Data is acquired in comma delimited format from a [mirrored bz2 archive](http://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2) containing NOAA Storm Database data from January 1950 to November 2011. If not already present in the working directory, it will be acquired from online. This process may be time- and memory-conusming.
+
+We will extract only columns of interest for our analysis -- begin date, event type, and data columns related to fatalities, injuries, property damage, and crop damage.
+
+```{r read, cache = TRUE}
+  f <- "repdata-data-StormData.csv.bz2"
+  if(!file.exists(f)) {
+    # Download file if not present in working directory.
+    f.url <- "http://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2"
+    download.file(f.url, destfile = f, mode = "wb")
+  }
+  
+  # Read file as data.table.
+  dt <- as.data.table(read.csv(f,
+  colClasses = c(
+    "NULL",              
+    "character",          # BGN_DATE
+    rep("NULL", 5),   
+    "factor",             # EVTYPE
+    rep("NULL", 14),  
+    "character",          # FATALITIES
+    "numeric",            # INJURIES
+    "numeric",            # PROPDMG
+    "factor",             # PROPDMGEXP
+    "numeric",            # CROPDMG
+    "factor",             # CROPDMGEXP
+    rep("NULL", 9) 
+  )
+))
+```
+
+## Exploratory Data Analysis
+
+### Year selection (1993-2011)
+The [NOAA Storm Events Database page](http://www.ncdc.noaa.gov/stormevents/details.jsp) documents that in earlier years, only data from a small handful of categories (Tornado, Thunderstorm Wind, and Hail) were gathered prior to 1996. To avoid skewed results, we will only consider data from years in which a wide range of event types were recorded.
+
+To aid our exploratory analysis, we convert the beginning date `BGN_DATE` in the data to a numerical year value and investigate the number of unique event types (`EVTYPE`) in the data by year. In particular, we're looking for years in which more than three event types were recorded.
+
+```{r explore_year, cache = TRUE}
+  # Obtain year and store in new variable.
+  dt$BGN_DATE <- gsub(" .+", "", dt$BGN_DATE) 
+  dt$BGN_DATE <- as.Date(dt$BGN_DATE, "%m/%d/%Y")
+  dt$year <- year(dt$BGN_DATE)
+  
+  # Explore unique EVTYPE by year.
+  dt[, .(uniques = length(unique(EVTYPE))), by = year][uniques > 3]
+```
+
+There appears to be a discrepancy here. The NOAA page refers to a more recent version of the database, and it's possible that different decisions have been made as a result. Let us confirm both that only Tornado, Thunderstorm Wind, and Hail data are available before 1993, and also that a wide range of event types are available from 1993 onward.
+   
+```{r explore_1993}
+  # Confirm pre-1993 EVTYPE variation.
+  as.character(unique(dt[year < 1993]$EVTYPE))
+  
+  # Show EVTYPE variation from 1993 through 1995.
+  dt.explore <- dt[year >= 1993 & year < 1996, .(records = nrow(.SD)), by = EVTYPE]
+  dt.explore[order(-records)][1:10]
+  
+  # Compare to 1996 through 1998.
+  dt.explore <- dt[year >= 1996 & year < 1999, .(records = nrow(.SD)), by = EVTYPE]
+  dt.explore[order(-records)][1:10]
+```  
+A breadth of `EVTYPE` categories is present in both 1993-1995 and 1996-1998, with no strong evidence for excluding the former years. With that in mind, we will select **1993 to 2011** as the period for this analysis on the basis that the event types recorded in this period appear are wide-ranging. 
+
+```{r process_year}
+  # Process data to remove data prior to 1993.
+  dt <- dt[year >= 1993]
+```  
+
+### Property and Crop Damage Exponents
+
+To continue our exploratory analysis, we investigate the meaning of the `PROPDMGEXP` and `CROPDMGEXP` modifiers in the post-1993 data that remains. First, we look at all levels of these factors that appear in the data.
+
+```{r explore_exp}
+  levels(dt$PROPDMGEXP)
+  levels(dt$CROPDMGEXP)
+```  
+
+For the numbers and letters, the variable names and NOAA instructions offer a useful guide. That is, numerics are exponents, and (for various capitalizations), **M** = millions, **B** = billions, **K** = thousands, and **H** = hundreds. The field is left blank where not applicable. 
+
+We proceed to investigate records (if any) associated with the remaining ambiguous modifiers:
+
+```{r explore_weird_exp}
+  cols <- c("EVTYPE", "FATALITIES", "INJURIES", "PROPDMG", "PROPDMGEXP")
+  dt[PROPDMGEXP %in% c("+", "?", "-") & PROPDMG > 0, cols, with = FALSE]
+  cols <- c("EVTYPE", "FATALITIES", "INJURIES", "CROPDMG", "CROPDMGEXP")
+  dt[CROPDMGEXP %in% c("?") & CROPDMG > 0, cols, with = FALSE]
+```
+
+We feel it a best guess that in such cases, no multipliers are to be applied; that **+**, **-**, and **?** indicate uncertainty about the damage provided without changes in order of magnitude. We must caution that possibly arbitrary amounts of error may be introduced by any assumption (or lack thereof) regarding unknown exponents. However, from our exploration of the data, we feel large-scale errors are unlikely to result from our interpretation.
+
+With that caveat in mind, we may now calculate true property and crop damage values to aid in data summary.
+
+```{r process_exp}
+  # Work with copies of original variables.
+  dt$propexp <- dt$PROPDMGEXP
+  dt$cropexp <- dt$CROPDMGEXP
+  
+  # Modify factor levels to numeric exponent multipliers.
+  levels(dt$propexp) <- c(
+    "0", "0", "0", "0", 0:8, "9", "2", "2", "3", "6", "6"
+  )
+  levels(dt$cropexp) <- c(
+    "0", "0", "0", "2", "9", "3", "3", "6", "6"
+  )
+  
+  # Create true damage variables.
+  dt$prop <- dt$PROPDMG * 10^(as.numeric(as.character(dt$propexp)))
+  dt$crop <- dt$CROPDMG * 10^(as.numeric(as.character(dt$cropexp)))
+```  
+### Sum data by EVTYPE
+
+We will now sum over all measures in the 1993-2011 data by provided event type. This paves the way for our exploratory analysis of `EVTYPE`.
+
+```{r dt_new_format}
+  dt.sum <- dt[,
+    .(
+      fatalities = sum(as.numeric(FATALITIES)),
+      injuries = sum(INJURIES),
+      totalPerson = sum(as.numeric(FATALITIES) + INJURIES),
+      prop = sum(prop),
+      crop = sum(crop),
+      totalDamage = sum(prop + crop),
+      numRecords = nrow(.SD)
+    ),
+    by = EVTYPE
+  ]
+```
+
+### EVTYPE Coercion
+
+The NOAA currently maintains a list of 48 distinct event types, but we quickly find a much larger number of unique `EVTYPE` in the recorded data:
+
+```{r explore_evtypes}
+  # Total unique evtypes >= 1993.
+  length(dt.sum$EVTYPE)
+  # Total evtypes for events with nonzero impact >= 1993.
+  length(dt.sum[totalPerson > 0 | totalDamage >0]$EVTYPE)
+```  
+As we saw earlier with our look at total unique `EVTYPE` by year, a number of the earlier years in the dataset are particularly responsible for this variation.
+
+Fortunately, **Instruction 10-1605** offers considerable guidance in resolving these variations. A large number of these are spelling variations or may be explicitly coerced to one of the 48 NWS event types. What remains are judgment calls between similar classifications, or `EVTYPE` deemed not to be coerceable and categorized in "Other" categories.
+
+We will focus only on coercing events with nonzero impact in this timeframe to the official NWS list. Full coercion code is extremely verbose and is removed from view here, but please note that it is reproduced in the **Appendix** in the interests of full reproducibility and documentation. 
+
+Our interpretations (beyond clear spelling variations) are recorded and detailed in the following sections.
+
+#### A low preference for winds
+
+In `EVTYPE` where winds and another event (usually winter storms) were both named, a preference was given to the non-wind related event. The NWS guide recommends noting the wind presence manually:
+
+> Some Winter Storm and Blizzard events may have had sustained or maximum wind gusts that met or exceeded High Wind criteria. Rather than document an additional High Wind event, the *Storm Data* preparer should just mention the time, location, and wind value in the Winter Storm or Blizzard event narrative. This is permissible even if only light snow and minor blowing snow...occurred with the high winds...(p. 91).
+
+#### A preference for less extreme event categories
+
+Where an `EVTYPE` doesn't clearly correspond to one of several official event types varying by degree, the lowest degree is preferred. 
+
+Examples include (`Winter Weather` / `Heavy Snow` / `Winter Storm` / `Blizzard`), (`Strong Wind` / `High Winds`), (`Heat` / `Excessive Heat`), (`High Surf` / `Storm Surge`), and (`Cold` / `Extreme Cold`), and (`Flood` / `Flash Flood`).
+
+The NWS instructions generally recommend more extreme events to be follow more specific requirements. For example:
+
+>...if blizzard-like conditions occur for less than 3 hours, the event should be entered as a Winter Storm, Heavy Snow, or Winter Weather (p. 92).
+
+And so blizzard events were reserved for those explicitly named as such.
+
+Coastal storms and coastal erosion were regarded as `Storm Surge/Tide` events because they were not specifically attributed to tropical depressions, and from the NWS language, not merely events of high surf.
+
+#### A preference for more specific events
+
+In the case of `EVTYPE` naming two very distinct categories, the more specific occurrence is preferred. For example, floods, drought, and surf are preferred if they are named along with other general events (such as "heat" or "rain"). 
+
+When thunderstorm winds are mentioned alongside either lightning or hail, the latter is preferred as the more specific feature likely to be specified in the damage record.
+
+#### Flash flood language
+The `Flash Flood` event type is characterized by:
+
+> ...rapid and extreme flow of high water into a normally dry area, or a rapid water level rise in a stream or creek  above a predetermined flood level, beginning within six hours of the causative event (e.g., intense rainfall, dam failure, ice jam-related) (p.32).
+
+As a result, dam failure events and ice jam (except minor) were categorized as `Flash flood`, while most other non-coastal floods were catagorized as `Flood`. As is the case with other categories, the distinction between the two can be a judgment call even for the preparer entering the data.
+
+#### Additional thunderstorm categories
+
+Downbursts, microbursts, and gustnadoes are explicitly defined to fall under the `Thunderstorm Wind` category (p. 70-71).
+
+#### Gradient wind
+
+Gradient winds appear to be regarded in the NWS language as a feature of `Tropical Depressions`, and they are categorized this way. This is consistent with overall coercion methods; such coercions were in cases where more extreme events such as `Hurricane` and `Tropical Storm` were not specifically named, and the existence of a pressure gradient indicates greater specificity than other wind categories (`Strong Wind` and `High Winds`). Additionally, `EVTYPE` naming gradient wind were the only damage-causing entries for `Tropical Depression` to appear in the NWS instructions. 
+
+#### Winter weather and snow 
+
+`Winter Weather` was defined as encompassing "one or more winter precipitation types" (p. 92) and `Winter Storm` was regarded as an event featuring "more than one significant hazard" (p. 91) but not rising to the level of a `Blizzard`. These guidelines were followed, but it should be noted that many of the distinctions are subject to interpretation.
+
+"Mixed precipitation" events were regarded to fall into the `Winter Weather` category. This included an `EVTYPE` named only as `HEAVY MIX` given language conventions adopted throughout the data as well as the NWS guide. In general, winter weather events not fitting a specific category via other guidelines defaulted to `Winter Weather`.
+
+"Snow squalls" are defaulted to the `Heavy Snow` category, while `EVTYPE` naming heavy snow in conjunction with a disparate precipitation or wind event were categorized as "Winter Storm".
+
+Blizzards, as previously noted, were reserved for events specifically named as such.
+
+#### "Other" events.
+
+There remained events that were not coerced to any of the existing 48 NWS categories. These were instead coerced to one of the following categories:
+
+1. **X-OTHER**: For truly ambiguous `EVTYPE` not fitting into any other category.
+1. **X-MARINE**: For marine-related `EVTYPE` not obviously fitting into the existing marine categories.
+1. **X-ZERO**: For `EVTYPE` that didn't record damage of any kind in the 1993-2011 data.
+
+```{r event_coercion_verbose, echo = FALSE}
+  # Redefine levels for new "event" variable.
+  event.coercion <- list(
+    "X-ZERO" = as.character(
+      dt.sum[totalPerson == 0 & totalDamage == 0]$EVTYPE
+    ),
+    "ASTRONOMICAL LOW TIDE" = "ASTRONOMICAL LOW TIDE",
+    "AVALANCHE" = c(
+      "AVALANCE",
+      "HEAVY SNOW/BLIZZARD/AVALANCHE"
+    ),
+    "BLIZZARD" = c(
+      "HEAVY SNOW/BLIZZARD",
+      "BLIZZARD/WINTER STORM",
+      "GROUND BLIZZARD",
+      "HIGH WIND/BLIZZARD"
+    ),
+    "COASTAL FLOOD" = c(
+      "Coastal Flood",
+      "HEAVY SURF COASTAL FLOODING",
+      "COASTAL FLOODING",
+      "HIGH WINDS/COASTAL FLOOD",
+      "Coastal Flooding",
+      "Erosion/Cstl Flood",
+      "COASTAL FLOODING/EROSION",
+      "COASTAL  FLOODING/EROSION"
+    ),
+    "COLD/WIND CHILL" = c(
+      "COOL AND WET",
+      "COLD AND WET CONDITIONS",
+      "RECORD COLD",
+      "FOG AND COLD TEMPERATURES",
+      "HYPOTHERMIA",
+      "COLD/WINDS",
+      "Hypothermia/Exposure",
+      "UNSEASONABLY COLD",
+      "COLD WAVE",
+      "LOW TEMPERATURE",
+      "COLD WEATHER",
+      "Unseasonable Cold",
+      "Extended Cold",
+      "Cold",
+      "Cold Temperature",
+      "COLD"
+    ),
+    "DEBRIS FLOW" = c(
+      "Landslump",
+      "LANDSLIDES",
+      "LANDSLIDE",
+      "MUDSLIDES",
+      "MUD SLIDE",
+      "MUD SLIDES",
+      "MUDSLIDE",
+      "ROCK SLIDE",
+      "Mudslides",
+      "Mudslide"
+    ),
+    "DENSE FOG" = c(
+      "FOG"
+    ),
+    "DENSE SMOKE" = "DENSE SMOKE",
+    "DROUGHT" = c(
+      "DROUGHT/EXCESSIVE HEAT",
+      "HEAT WAVE DROUGHT"
+    ),
+    "DUST DEVIL" = c(
+      "Dust Devil"
+    ),
+    "DUST STORM" = c(
+      "BLOWING DUST",
+      "DUST STORM/HIGH WINDS"
+    ),
+    "EXCESSIVE HEAT" = c(
+      "EXTREME HEAT",
+      "RECORD/EXCESSIVE HEAT"
+    ),
+    "EXTREME COLD/WIND CHILL" = c(
+      "EXTREME COLD",
+      "EXTREME WIND CHILL",
+      "EXTREME WINDCHILL",
+      "Extreme Cold",
+      "HYPOTHERMIA/EXPOSURE",
+      "HYPERTHERMIA/EXPOSURE"
+    ),
+    "FLASH FLOOD" = c(
+      " FLASH FLOOD",
+      "FLASH FLOOD",
+      "RAPIDLY RISING WATER",
+      "DAM BREAK",
+      "ICE JAM",
+      "ICE STORM/FLASH FLOOD",
+      "FLASH FLOODING",
+      "FLASH FLOODS",
+      "FLASH FLOOD WINDS",
+      "FLASH FLOOD/",
+      "FLASH FLOOD - HEAVY RAIN",
+      "FLASH FLOOD/ STREET",
+      "FLOOD FLASH",
+      "FLOOD/FLASH",
+      "FLASH FLOODING/FLOOD",
+      "FLASH FLOOD/LANDSLIDE",
+      "FLASH FLOOD LANDSLIDES",
+      "FLASH FLOOD",
+      "FLASH FLOODING/THUNDERSTORM WI",
+      "FLOOD/FLASH FLOOD",
+      "FLASH FLOOD/FLOOD",
+      "FLASH FLOOD FROM ICE JAMS",
+      "FLOOD/FLASHFLOOD",
+      "ICE JAM FLOODING",
+      "FLOOD/FLASH/FLOOD"
+    ),
+    "FLOOD" = c(
+      "HIGH WATER",
+      "MUD SLIDES URBAN FLOODING",
+      "FLOODING",
+      "FLOODING/HEAVY RAIN",
+      "FLOOD/RAIN/WINDS",
+      "MINOR FLOODING",
+      "FLOODS",
+      "FLOOD/RIVER FLOOD",
+      "Tidal Flooding",
+      "River Flooding",
+      "TIDAL FLOODING",
+      "SNOWMELT FLOODING",
+      "THUNDERSTORM WINDS/ FLOOD",
+      "Ice jam flood (minor",
+      "URBAN SMALL",
+      "BREAKUP FLOODING",
+      "RIVER FLOOD",
+      "URBAN FLOODING",
+      "URBAN FLOOD",
+      "URBAN/SMALL STREAM FLOOD",
+      "RURAL FLOOD",
+      "MAJOR FLOOD",
+      "SMALL STREAM FLOOD",
+      "LAKE FLOOD",
+      "URBAN AND SMALL STREAM FLOODIN",
+      "RIVER AND STREAM FLOOD",
+      "RIVER FLOODING",
+      "URBAN/SMALL STREAM",
+      "HEAVY RAIN AND FLOOD",
+      "HEAVY RAINS/FLOODING",
+      "THUNDERSTORM WINDS/FLOODING",
+      "FLOOD & HEAVY RAIN",
+      "URBAN FLOODS",
+      "HEAVY RAIN/SMALL STREAM URBAN",
+      "URBAN/SML STREAM FLD",
+      "URBAN AND SMALL"
+    ),
+    "FROST/FREEZE" = c(
+      "Frost/Freeze",
+      "FREEZE",
+      "DAMAGING FREEZE",
+      "FROST",
+      "AGRICULTURAL FREEZE",
+      "FROST\\FREEZE", 
+      "HARD FREEZE",
+      "Freeze",
+      "Damaging Freeze",
+      "Early Frost"
+    ),
+    "FREEZING FOG" = "FREEZING FOG",
+    "HAIL" = c(
+      "THUNDERSTORM HAIL",
+      "THUNDERSTORM WINDSHAIL",
+      "THUNDERSTORM WIND/HAIL",
+      "THUNDERSTORM WINDS/HAIL",
+      "THUNDERSTORM WINDS HAIL",
+      "TSTM WIND/HAIL",
+      "GUSTY WIND/HAIL",
+      "HAIL 75",
+      "SMALL HAIL",
+      "HAIL 0.75",
+      "HAIL/WINDS",
+      "HAIL/WIND",
+      "WIND/HAIL",
+      "HAIL 175",
+      "HAIL 100",
+      "HAIL 150",
+      "HAIL 075",
+      "HAIL 125",
+      "HAIL 200",
+      "HAIL DAMAGE",
+      "HAIL 275",
+      "HAIL 450",
+      "HAILSTORM"
+    ),
+    "HEAT" = c(
+      "HEAT WAVE",
+      "UNSEASONABLY WARM",
+      "RECORD HEAT",
+      "HEAT WAVES",
+      "UNSEASONABLY WARM AND DRY",
+      "Heat Wave",
+      "WARM WEATHER"
+    ),
+    "HEAVY RAIN" = c(
+      "RECORD RAINFALL",
+      "HEAVY PRECIPITATION",
+      "HEAVY RAINS",
+      "RAINSTORM",
+      "HEAVY RAIN/SEVERE WEATHER",
+      "RAIN",
+      "HVY RAIN",
+      "RAIN/WIND",
+      "EXCESSIVE RAINFALL",
+      "Torrential Rainfall",
+      "UNSEASONAL RAIN",
+      "LIGHTNING AND HEAVY RAIN",
+      "HEAVY RAIN/LIGHTNING",
+      "LIGHTNING/HEAVY RAIN",
+      "HIGH WINDS HEAVY RAINS",
+      "HIGH WINDS/HEAVY RAIN",
+      "HEAVY SHOWER"
+    ),
+    "HEAVY SNOW" = c(
+      "SNOW SQUALLS",
+      "SNOW SQUALL",
+      "RECORD SNOW",
+      "Snow Squalls",
+      "EXCESSIVE SNOW",
+      "HEAVY RAIN/SNOW",
+      "SNOW AND HEAVY SNOW",
+      "SNOW/HEAVY SNOW",
+      "HEAVY SNOW/FREEZING RAIN",
+      "HEAVY SNOW/ICE",
+      "HEAVY SNOW AND HIGH WINDS",
+      "HEAVY SNOW SQUALLS",
+      "HEAVY SNOW/SQUALLS",
+      "HEAVY SNOW-SQUALLS",
+      "Heavy snow shower",
+      "HIGH WIND/HEAVY SNOW",
+      "HEAVY SNOW/WIND"
+    ),
+    "HIGH SURF" = c(
+      "High Surf",
+      "HIGH SURF ADVISORY",
+      "   HIGH SURF ADVISORY",
+      "Beach Erosion",
+      "HIGH TIDES",
+      "HEAVY SURF",
+      "Heavy Rain/High Surf",
+      "Heavy surf and wind",
+      "HIGH WAVES",
+      "ROUGH SURF",
+      "Heavy Surf",
+      "HIGH SWELLS",
+      "HIGH SURF ADVISORY",
+      "HAZARDOUS SURF",
+      "ASTRONOMICAL HIGH TIDE",
+      "HEAVY SURF/HIGH SURF"
+    ),
+    "HIGH WIND" = c(
+      "WIND STORM",
+      "STORM FORCE WINDS",
+      "HIGH WINDS/COLD",
+      "HIGH WINDS",
+      "HIGH WIND DAMAGE",
+      "HIGH WINDS/",
+      "HIGH  WINDS",
+      "HIGH WIND 48",
+      "HIGH WIND (G40)"
+    ),
+    "HURRICANE/TYPHOON" = c(
+      "HURRICANE OPAL/HIGH WINDS",
+      "HURRICANE ERIN",
+      "HURRICANE OPAL",
+      "HURRICANE",
+      "HURRICANE-GENERATED SWELLS",
+      "HURRICANE EMILY",
+      "HURRICANE GORDON",
+      "HURRICANE FELIX",
+      "Hurricane Edouard",
+      "TYPHOON"
+    ),
+    "LAKE-EFFECT SNOW" = c(
+      "HEAVY LAKE SNOW",
+      "LAKE EFFECT SNOW",
+      "Lake Effect Snow"
+    ),
+    "LAKESHORE FLOOD" = "LAKESHORE FLOOD",
+    "LIGHTNING" = c(
+      "LIGHTING",
+      "LIGHTNING INJURY",
+      "LIGNTNING",
+      "LIGHTNING.",
+      "LIGHTNING FIRE",
+      "LIGHTNING  WAUSEON",
+      "THUNDERSTORM WIND/LIGHTNING",
+      "TSTM WIND AND LIGHTNING",
+      "THUNDERSTORM WINDS LIGHTNING"
+    ),
+    "MARINE HAIL" = "MARINE HAIL",
+    "MARINE HIGH WIND" = c(
+      "HIGH WIND/SEAS",
+      "HIGH WIND AND SEAS"
+    ),
+    "MARINE STRONG WIND" = "MARINE STRONG WIND",
+    "MARINE THUNDERSTORM" = c(
+      "MARINE TSTM WIND",
+      "MARINE THUNDERSTORM WIND"
+    ),
+    "RIP CURRENT" = c(
+      "RIP CURRENTS/HEAVY SURF",
+      "RIP CURRENTS"
+    ),
+    "SEICHE" = "SEICHE",
+    "SLEET" = c(
+      "FREEZING RAIN/SLEET"
+    ),
+    "STORM SURGE/TIDE" = c(
+      "STORM SURGE",
+      "COASTAL STORM",
+      "COASTAL SURGE",
+      "COASTAL EROSION",
+      "Coastal Storm",
+      "COASTALSTORM"
+    ),
+    "STRONG WIND" = c(
+      "Strong Wind",
+      "GUSTY WIND/HVY RAIN",
+      "WIND",
+      "WIND DAMAGE",
+      "GUSTY WINDS",
+      "WINDS",
+      "Gusty wind/rain",
+      "Gusty Winds",
+      "GUSTY WIND",
+      "Gusty winds",
+      "NON-TSTM WIND",
+      "NON TSTM WIND",
+      "STRONG WINDS",
+      "Wind",
+      "Wind Damage",
+      "Strong Winds",
+      "NON-SEVERE WIND DAMAGE"
+    ),
+    "THUNDERSTORM WIND" = c(
+      "GUSTNADO",
+      " TSTM WIND (G45)",
+      " TSTM WIND",
+      "THUNDERSTORM WINDS",
+      "THUNDERSTORM WINS",
+      "THUNDERSTORM",
+      "SEVERE THUNDERSTORM",
+      "SEVERE THUNDERSTORMS",
+      "SEVERE THUNDERSTORM WINDS",
+      "THUNDERSTORMS WINDS",
+      "THUNDERSTORMS",
+      "THUNDERSTORM WINDSS",
+      "LIGHTNING THUNDERSTORM WINDS",
+      "LIGHTNING AND THUNDERSTORM WIN",
+      "THUNDERSTORM WINDS53",
+      "THUNDERSTORM WINDS 13",
+      "TSTM WIND 55",
+      "THUNDERTORM WINDS",
+      "THUNDERSTORMS WIND",
+      "THUNDERSTORM  WINDS",
+      "TUNDERSTORM WIND",
+      "THUNDERSTORM WIND G50",
+      "THUNDERSTORM WIND G60",
+      "THUNDERSTORM WINDS.",
+      "THUNDERSTORM WIND G55",
+      "THUNDERSTORM WINDS G60",
+      "TSTM WIND G58",
+      "THUNDERSTORM WIND 60 MPH",
+      "THUNDERSTORM WIND 65MPH",
+      "THUNDERSTORM WIND/ TREES",
+      "THUNDERSTORM WIND/AWNING",
+      "THUNDERSTORM WIND 98 MPH",
+      "THUNDERSTORM WIND TREES",
+      "THUNDERSTORM WINDS 63 MPH",
+      "THUNDERSTORM WIND/ TREE",
+      "THUNDERSTORM DAMAGE TO",
+      "THUNDERSTORM WIND 65 MPH",
+      "THUNDERSTORM WIND.",
+      "THUDERSTORM WINDS",
+      "THUNDERSTORM WINDS AND",
+      "TSTM WIND DAMAGE",
+      "THUNDERSTORM WIND G52",
+      "THUNDERESTORM WINDS",
+      "THUNDEERSTORM WINDS",
+      "THUNERSTORM WINDS",
+      "THUNDERSTORMW",
+      "TSTM WINDS",
+      "TSTMW",
+      "TSTM WIND 65)",
+      "THUNDERSTORMWINDS",
+      "THUNDERSTROM WIND",
+      "Tstm Wind",
+      "TSTM WIND (G45)",
+      "TSTM WIND 40",
+      "TSTM WIND 45",
+      "TSTM WIND (41)",
+      "TSTM WIND (G40)",
+      "TSTM WIND",
+      "TSTM WIND (G45)",
+      "TSTM WIND  (G45)",
+      "TSTM WIND (G35)",
+      "TSTM WIND G45",
+      "THUNDERSTORM WIND (G40)",
+      "DRY MICROBURST",
+      "MICROBURST",
+      "DOWNBURST",
+      "WET MICROBURST",
+      "DRY MIRCOBURST WINDS",
+      "MICROBURST WINDS",
+      "Microburst",
+      "Gustnado"
+    ),
+    "TORNADO" = c(
+      "FUNNEL CLOUD",
+      "FUNNEL",
+      "WATERSPOUT",
+      "TORNADO F3",
+      "TORNADO F0",
+      "WATERSPOUT/TORNADO",
+      "WATERSPOUT TORNADO",
+      "WATERSPOUT-TORNADO",
+      "WATERSPOUT-",
+      "TORNADOES, TSTM WIND, HAIL",
+      "COLD AIR TORNADO",
+      "WATERSPOUT/ TORNADO",
+      "DUST DEVIL WATERSPOUT",
+      "TORNADO",
+      "TORNDAO",
+      "TORNADO F1",
+      "TORNADO F2",
+      "TORNADOES",
+      "Whirlwind",
+      "LANDSPOUT",
+      "WHIRLWIND",
+      "THUNDERSTORM WINDS/FUNNEL CLOU"
+    ),
+    "TROPICAL DEPRESSION" = c(
+      "Gradient wind",
+      "GRADIENT WIND",
+      "gradient wind"
+    ),
+    "TROPICAL STORM" = c(
+      "TROPICAL STORM ALBERTO",
+      "TROPICAL STORM GORDON",
+      "TROPICAL STORM JERRY",
+      "TROPICAL STORM DEAN"
+    ),
+    "TSUNAMI" = "TSUNAMI",
+    "VOLCANIC ASH" = "Volcanic Ash",
+    "WILDFIRE" = c(
+      "WILD FIRES",
+      "WILD/FOREST FIRE",
+      "GRASS FIRES",
+      "FOREST FIRES",
+      "WILDFIRES",
+      "WILD/FOREST FIRES",
+      "BRUSH FIRE"
+    ),
+    "WINTER WEATHER" = c(
+      "MIXED PRECIP",
+      "Mixed Precipitation",
+      "MIXED PRECIPITATION",
+      "ICE",
+      "SNOW",
+      "HEAVY SNOWPACK",
+      "BLOWING SNOW",
+      "GLAZE",
+      "RAIN/SNOW",
+      "GLAZE ICE",
+      "ICE FLOES",
+      "SNOW/COLD",
+      "ICY ROADS",
+      "SNOW/ BITTER COLD",
+      "SNOW ACCUMULATION",
+      "Snow",
+      "blowing snow",
+      "Glaze",
+      "COLD AND SNOW",
+      "BLACK ICE",
+      "ICE ROADS",
+      "LATE SEASON SNOW",
+      "FALLING SNOW/ICE",
+      "ICE ON ROAD",
+      "WINTRY MIX",
+      "LIGHT SNOW",
+      "Wintry Mix",
+      "Light snow",
+      "Light Snow",
+      "Light Snowfall",
+      "WINTER WEATHER MIX",
+      "WINTER WEATHER/MIX",
+      "FREEZING DRIZZLE",
+      "Freezing Rain",
+      "Freezing Drizzle",
+      "Freezing drizzle",
+      "LIGHT FREEZING RAIN",
+      "FREEZING RAIN",
+      "HEAVY MIX"
+    ),
+    "WINTER STORM" = c(
+      "ICE STORM",
+      "SLEET/ICE STORM",
+      "SNOW AND ICE STORM",
+      "GLAZE/ICE STORM",
+      "HEAVY SNOW/WINTER STORM",
+      "SNOW/ICE STORM",
+      "ICE/STRONG WINDS",
+      "SNOW/HIGH WINDS",
+      "HIGH WINDS/SNOW",
+      "HEAVY SNOW AND STRONG WINDS",
+      "HEAVY SNOW/HIGH WINDS & FLOOD",
+      "WINTER STORM HIGH WINDS",
+      "WINTER STORMS",
+      "SNOW/ICE",
+      "SNOW/SLEET/FREEZING RAIN",
+      "THUNDERSNOW",
+      "SNOW AND ICE",
+      "SNOW FREEZING RAIN",
+      "SNOW/SLEET",
+      "SNOW/FREEZING RAIN",
+      "ICE AND SNOW",
+      "SNOW/BLOWING SNOW",
+      "SNOW/ ICE",
+      "FREEZING RAIN/SNOW"
+    ),
+    "X-MARINE" = c(
+      "MARINE MISHAP",
+      "HIGH SEAS",
+      "HEAVY SEAS",
+      "HEAVY SWELLS",
+      "Marine Accident",
+      "Freezing Spray",
+      "WIND AND WAVE",
+      "ROUGH SEAS",
+      "ROGUE WAVE"
+    ),
+    "X-OTHER" = c(
+      "SEVERE TURBULENCE",
+      "APACHE COUNTY",
+      "HIGH",
+      "EXCESSIVE WETNESS",
+      "OTHER",
+      "?",
+      "Other",
+      "DROWNING"
+    )
+  )
+```  
+Under the guidelines documented above, we construct a manual mapping list named `event.coercion` (hidden here due to its verbosity, but reproduced by reference in full in the **Appendix**) to re-level the existing `EVTYPE` factor to our set of coerced choices. We chose a manual mapping over pattern matching for reproducibility, so it is clear exactly where `EVTYPE` in the data is mapped.
+
+```{r process_data_final}
+  
+   # Coerce EVTYPE to new `event` variable using mappling list.
+  dt.sum$event <- dt.sum$EVTYPE
+  levels(dt.sum$event) <- event.coercion
+  
+  # Resum dataset observations by coerced `event` variable.
+  dt.results <- dt.sum[, 
+    .(
+      fatalities = sum(fatalities),
+      injuries = sum(injuries),
+      totalPerson = sum(totalPerson),
+      prop = sum(prop),
+      crop = sum(crop),
+      totalDamage = sum(prop + crop)
+    ),
+    by = event
+  ]
+  
+  # Check unique events in resulting data.
+  length(dt.results$event)
+  # Ensure no NAs have resulted from EVTYPE coercion.
+  complete.cases(unique(dt.sum$event))
+```  
+With the `EVTYPE` so coerced in the new `event` variable, we are now ready to present results.
+
+## Results
+
+### Person Impact
+
+We represent fatalities, injuries, and total person count in the following panel plot, using a **base-10 log scaling** for the axis of values. We chose a log scale due to the significant distance between the many events on the lower end of the scale and the few at the top. Note that while the scale is log, the values are the actual observed data.
+
+*n.b.* values plotted are $(value + 1)$ to accomodate the log scale, because $log(0)$ is not defined.
+
+```{r results_plot_person, fig.width = 10, fig.height = 8, fig.cap = "Figure 1: Results (Person)"}
+  # Melt data to narrow form for plotting.
+  dt.person <- dt.results[
+    order(-totalPerson, -fatalities, -injuries),
+    .(
+      "Fatalities" = fatalities,
+      "Injuries" = injuries,
+      "Total" = totalPerson,
+      event = event
+    )
+  ]
+  
+  melt.person <- melt(dt.person, id.vars = "event")
+
+  # Order bars by total person count.
+  melt.person$eventOrder <- factor(
+    melt.person$event, 
+    levels = dt.person[order(-Total)]$event
+  )
+  
+  # Bar plot on log10 scale.
+  ggplot(melt.person, aes(x = eventOrder, y = value + 1, fill = eventOrder)) +
+    geom_bar(stat = "identity") + coord_flip() +
+    facet_grid(.~ variable) +
+    theme(legend.position="none") +
+    scale_y_log10(breaks = c(10, 100, 500, 100, 1000, 2500, 10000, 25000)) +
+    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+    labs(x = "Event Type\n", y = "\nPerson Count") +
+    labs(title = "Personal Harm from Severe Weather Events in the U.S. 1993-2011\n")
+```  
+In terms of total person count impact, we observe the following Top 5:
+
+```{r results_person_top_5}
+  dt.person[1:5]
+```  
+It bears noting that "heat" and "flood" related events also appear just outside of the Top 5. **Tornadoes** are overwhelming top offenders with a significant gap. Among events next in line, it bears noting that many of them are related. In taking a broad view of the related categories, **heat**, **flood**, and **thunderstorm** related weather phenomena stand out as the other significant personal harm causers. Cold weather and winter related events also have an impact, but perhaps to not as great an extent.
+
+### Economic Impact
+
+We represent propert, crop, and total economic damage in reported unadjusted USD in the following panel plot, using a **base-10 log scaling** for the axis of values. We chose a log scale due to the significant distance between the many events on the lower end of the scale and the few at the top. Note that while the scale is log, the values are the actual observed data.
+
+*n.b.* values plotted are $(value + 1)$ to accomodate the log scale as $log(0)$ is not defined.
+
+```{r results_plot_economic, fig.width = 10, fig.height = 8, fig.cap = "Figure 2: Results (Economic)"}
+   # Melt data to narrow form for plotting.
+  dt.econ <- dt.results[
+    order(-totalDamage, -prop, -crop),
+    .("Property" = prop,
+      "Crop" = crop,
+      "Total" = totalDamage,
+      event = event
+    )
+  ]
+  
+  melt.econ <- melt(dt.econ, id.vars = "event")
+
+  # Order bars by total person count.
+  melt.econ$eventOrder <- factor(
+    melt.econ$event, 
+    levels = dt.econ[order(-Total)]$event
+  )
+  
+  # Bar plot on log10 scale.
+  ggplot(melt.econ, aes(x = eventOrder, y = value + 1, fill = eventOrder)) +
+    geom_bar(stat = "identity") + coord_flip() +
+    facet_grid(.~ variable) +
+    theme(legend.position = "none") +
+    scale_y_log10(breaks = c(1e3, 1e6, 1e8, 1e10, 1e12, 1e13)) +
+    labs(x = "\nEvent Type", y = "(Unadjusted) USD\n") +
+    labs(title = "Economic Damage (USD) from Severe Weather Events in the U.S. 1993-2011\n")
+```  
+
+In terms of total economic impact, we observe the following top 5 (in billions of USD):
+
+```{r results_economic_top_5}
+  options(scipen = 999)
+  dt.econ[1:5,
+    .(
+      "Property" = Property / 10^9,
+      "Crop" = Crop / 10^9,
+      "Total" = Total / 10^9,  
+      "event" = event
+    )
+  ]
+  
+```  
+
+Floods, hurricanes and storm surge events, and tornadoes are again preeminent among events in these categories. Droughts, winter events, and hail take on added prominence relating to crop damage. In this discussion we draw a relation between hurricane/typhoon events and "storm surge" events as similarly resulting from coastal storms.
+
+Notice that the differences even in the top 5 are significant. From the first event to the fifth event we approach an order of magnitude difference, which is on the order of 100 billion USD.
+
+### Regional biases
+
+It should be noted that there are well-known regional biases in different directions. While tornadoes are the greatest singular category by some distance, the "Tornado Alley" where such events are common is restricted primarily to the midwest regions of the country. Winter weather is far more common in the northern parts of the country and to a large extent absent in the southernmost points, while summer heat is less discriminate. 
+
+While regional evaluation of the data is beyond the scope of this report, which takes a broad nation-wide view, local general knowledge considerations should apply when preparing threat assessments.
+
+### Event frequency
+
+An event's position on the list does not reflect *damage per incidence* or *frequency of incidence*, but rather, cumulative damage. This single cumulative measure will tend to highlight events that are both costly and numerous. We do this to highlight overall impact patterns from storm events in the United States.
+
+## Summary
+
+**Flooding**, **thunderstorm winds**, **winter storms**, and **tornadoes** stand out as the top offenders for severe weather events across *both* personal and economic measures of impact. 
+
+**Heat** related events featured very prominently only in relation to personal harm caused, while **Hurricanes**, **Storm surges**, **hail**, and **droughts** were among those leaping to prominence primarily in economic impact.
+
+
+
+
+## Appendix
+
+### Full list of damage-causing EVTYPEs
+The following is a a full list of unique `EVTYPE` (excluding ones which never have recorded damages of any kind). All of these are explicitly mapped to either an official NWS event type designation or an "Other" category by the coercion mapping printed in the following section.
+
+```{r appendix_unique_nonzero_evtype}
+  dt.sum[totalPerson > 0 | totalDamage > 0]$EVTYPE
+```  
+
+### Full coercion mapping code
+The construction of our coercion mapping list, in a variable named `event.coercion`, was hidden from view above to the length of the code chunk. It is reproduced by reference here in the Appendix for full documentation of all code used in this report.
+
+```{r duplicate_event_coercion, ref.label = "event_coercion_verbose"}
+```
+
+### Full Results
+Our results were represented visually in the report. The full data, ordered by economic damage, is produced here in the Appendix as a detailed reference. The `xtable` package is used to present the `data.table` output in more readable format.
+
+```{r appendix_full_data, results = "asis"}
+  # Add "Totals" row to results summary.
+  dt.results.summary <- rbind(
+    list(
+      Event = "Totals",
+      Fatalities = sum(dt.results$fatalities),
+      Injuries = sum(dt.results$injuries),
+      Total = sum(dt.results$totalPerson),
+      "Property Damage" = sum(dt.results$prop),
+      "Crop Damage" = sum(dt.results$crop),
+      "Total Damage" = sum(dt.results$totalDamage)
+    ),
+    dt.results[order(-totalDamage),
+      .(
+        Event = event,
+        Fatalities = fatalities,
+        Injuries = injuries,
+        Total = totalPerson,
+        "Property Damage" = prop,
+        "Crop Damage" = crop,
+        "Total Damage" = totalDamage
+      )
+    ]
+  )
+  # Use xtable to print in nice format.
+  print(
+    xtable(
+      dt.results.summary,
+      caption = "Total person and economic damage (USD) from NWS Storm Damage Data, 1993-2011",
+      digits = c(0, 0, 0, 0, 0, -3, -3, -3)
+    ), 
+    type = "html",
+    caption.placement = "top"
+  )
+```
+### Final Remarks
+Thank you for taking the time to review my assignment. Your comments are appreciated!
+
