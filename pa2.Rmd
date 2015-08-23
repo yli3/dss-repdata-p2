@@ -1,8 +1,11 @@
 ---
 title: "Impacts of Severe Weather Events in the United States"
 author: "Student"
-date: "August 14, 2015"
-output: html_document
+date: "August 23, 2015"
+output:
+  html_document:
+    fig_caption: yes
+    toc: true
 ---
 
 ```{r global_options, include=FALSE}
@@ -14,8 +17,29 @@ knitr::opts_chunk$set(
   blockquote {
     color: #666;
   }
+  h4 {
+    font-size: 20px !important;
+  }
   td, th {
     padding: 0.5em !important;
+  }
+  p.caption {
+    width: 80%; 
+    margin-left: 20%; margin-bottom: 2em;
+    padding-top: 0.5em;
+    text-align: right;
+    font-size: 120%;
+    font-weight: bold;
+    color: #666;
+    border-top: 1px solid #ccc;
+  }
+  #TOC {
+    width: 80%;
+    background: #f6f6f6;
+    padding: 2em 0 2em 0;
+  }
+  .footer_spacer {
+    margin-top: 6em
   }
 </style>
 
@@ -820,9 +844,7 @@ Under the guidelines documented above, we construct a manual mapping list named 
    # Coerce EVTYPE to new `event` variable using mappling list.
   dt.sum$event <- dt.sum$EVTYPE
   levels(dt.sum$event) <- event.coercion
-  
-  dt.sum[which(is.na(event))]
-  
+
   # Resum dataset observations by coerced `event` variable.
   dt.results <- dt.sum[, 
     .(
@@ -855,7 +877,7 @@ Another aim of the panel plot is to illustrate relative percentages of total per
 
 ### Person Impact
 
-```{r results_plot_person, fig.width = 10, fig.height = 8, fig.cap = "Figure 1: Results (Person)"}
+```{r results_plot_person, fig.width = 10, fig.height = 10, fig.cap = "Figure 1: Results (Person)", results = "asis"}
   # Melt data to narrow form for plotting.
   dt.person <- dt.results[
     order(-totalPerson, -fatalities, -injuries),
@@ -930,7 +952,7 @@ In bears noting that many of the top events in this order are also closely relat
 
 ### Economic Impact
 
-```{r results_plot_economic, fig.width = 10, fig.height = 8, fig.cap = "Figure 2: Results (Economic)"}
+```{r results_plot_economic, fig.width = 10, fig.height = 10, fig.cap = "Figure 2: Results (Economic)", results = "asis"}
    # Melt data to narrow form for plotting.
   dt.econ <- dt.results[
     order(-totalDamage, -prop, -crop),
@@ -1093,14 +1115,14 @@ These are defined and explained in NWS Instruction 10-1605. In our data, to avoi
 1. Winter Storm  
 1. Winter Weather  
 
-### Appendix A: Full list of damage-causing EVTYPEs
+### Appendix B: Full list of damage-causing EVTYPEs
 The following is a a full list of unique `EVTYPE` (excluding ones which never have recorded damages of any kind). All of these are explicitly mapped to either an official NWS event type designation or an "Other" category by the coercion mapping printed in the following section.
 
 ```{r appendix_unique_nonzero_evtype}
   sort(as.character(dt.sum[totalPerson > 0 | totalDamage > 0]$EVTYPE))
 ```  
 
-### Appendix B: Full coercion mapping code
+### Appendix C: Full coercion mapping code
 The construction of our coercion mapping list, in a variable named `event.coercion`, was hidden from view above to the length of the code chunk. It is reproduced by reference here in order to fully document all code used to prepare this report.
 
 ```{r duplicate_event_coercion, ref.label = "event_coercion_verbose"}
@@ -1137,7 +1159,7 @@ Our results were represented visually in the report. The full data is printed he
   print(
     xtable(
       dt.results.summary,
-      caption = "Total person and economic damage (USD) from NWS Storm Damage Data, 1993-2011",
+      caption = "Table 1: Personal health and economic damage (USD) from NOAA Storm Events Database, 1993-2011",
       digits = c(0, 0, 0, 0, 0, -3, -3, -3)
     ), 
     type = "html",
@@ -1145,5 +1167,6 @@ Our results were represented visually in the report. The full data is printed he
   )
 ```
 ## Final Remarks
-Thank you for taking the time to review this report! Your comments and feedback are most appreciated.
+Thank you for taking the time to review this report! Your comments and feedback are appreciated!
 
+<div class="footer_spacer">&nbsp;</div>
