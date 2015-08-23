@@ -12,7 +12,6 @@ knitr::opts_chunk$set(
 ```
 <style>
   blockquote {
-    font-size: inherit !important;
     color: #666;
   }
   td, th {
@@ -22,11 +21,11 @@ knitr::opts_chunk$set(
 
 ## Synopsis
 
-In this report we explore the types of severe weather events in the United States that have historically been the most impactful. We use data collected from 1950 to 2011 in the [NOAA Storm Events Database](https://www.ncdc.noaa.gov/stormevents/ftp.jsp). We report cumulative measures of personal harm (fatalities, injuries, and their sum) and economic cost (property damage, crop damage, and their sum) across event types [defined in National Weather Service Instruction 10-1605](https://www.ncdc.noaa.gov/stormevents/pd01016005curr.pdf).
+In this report we explore the most impactful severe weather events recorded in the United States in the [NOAA Storm Events Database](https://www.ncdc.noaa.gov/stormevents/ftp.jsp). We use cumulative measures of personal harm (fatalities, injuries, and their sum) and economic cost (property damage, crop damage, and their sum) across event types [defined in National Weather Service Instruction 10-1605](https://www.ncdc.noaa.gov/stormevents/pd01016005curr.pdf).
 
-Our analysis considers a 1993 to 2011 subset of the data on the basis that this period contains more complete observations across different event types. Additionally, we make a best faith effort to correct significant gaps between data and documentation (in particular mispellings and ambiguities in recorded event types) according to NWS guidelines.
+Our analysis period covers 1993 to 2011. Additionally, we make a best faith effort to correct significant ambiguities and gaps between data and documentation, according to NWS guidelines.
 
-Main results and are discussed and presented by panel plots. A full table of results is provided in the appendix. All code required to fully reproduce our results from the given data is included.
+Main results are presented via panel plots, and discussed and summarized. A full table of final calculations is provided in the appendices section. All code required to fully reproduce results from the given data is included, as well as a detailed account of the exploratory steps taken.
 
 ## Data Processing
 
@@ -170,7 +169,7 @@ We will now sum over all measures in the 1993-2011 data by provided event type. 
 
 ### EVTYPE Coercion
 
-The NOAA currently maintains a list of 48 distinct event types, but we quickly find a much larger number of unique `EVTYPE` in the recorded data:
+The NOAA currently maintains a list of 48 distinct event types, but we find a much larger number of unique `EVTYPE` in the recorded data:
 
 ```{r explore_evtypes}
   # Total unique evtypes >= 1993.
@@ -180,64 +179,81 @@ The NOAA currently maintains a list of 48 distinct event types, but we quickly f
 ```  
 As we saw earlier with our look at total unique `EVTYPE` by year, a number of the earlier years in the dataset are particularly responsible for this variation.
 
-Fortunately, **Instruction 10-1605** offers considerable guidance in resolving these variations. A large number of these are spelling variations or may be explicitly coerced to one of the 48 NWS event types. What remains are judgment calls between similar classifications, or `EVTYPE` deemed not to be coerceable and categorized in "Other" categories.
+Fortunately, **Instruction 10-1605** offers considerable guidance in resolving the discrepancy. A large number of these `EVTYPE` are spelling variations or may be explicitly coerced to one of the 48 NWS event types. What remains are largely judgment calls between official categories. A few`EVTYPE` were deemed to have remained not coerceable and were categorized in "Other" categories.
 
-We will focus only on coercing events with nonzero impact in this timeframe to the official NWS list. Full coercion code is extremely verbose and is removed from view here, but please note that it is reproduced in the **Appendix** in the interests of full reproducibility and documentation. 
+We will focus only on coercing events with nonzero impact in this timeframe to the official NWS list. Full coercion code is extremely verbose and is removed from view here, but please note that it is reproduced in the **Appendix C** in the interests of full reproducibility and documentation. 
 
-Our interpretations (beyond clear spelling variations) are recorded and detailed in the following sections.
+Our interpretations (decisions beyond clear spelling variations) and approach are described in the following sections.
 
-#### A low preference for winds
+#### A Low Preference for Winds
 
 In `EVTYPE` where winds and another event (usually winter storms) were both named, a preference was given to the non-wind related event. The NWS guide recommends noting the wind presence manually:
 
 > Some Winter Storm and Blizzard events may have had sustained or maximum wind gusts that met or exceeded High Wind criteria. Rather than document an additional High Wind event, the *Storm Data* preparer should just mention the time, location, and wind value in the Winter Storm or Blizzard event narrative. This is permissible even if only light snow and minor blowing snow...occurred with the high winds...(p. 91).
 
-#### A preference for less extreme event categories
+#### A Preference for Lower Degree Events
 
 Where an `EVTYPE` doesn't clearly correspond to one of several official event types varying by degree, the lowest degree is preferred. 
 
 Examples include (`Winter Weather` / `Heavy Snow` / `Winter Storm` / `Blizzard`), (`Strong Wind` / `High Winds`), (`Heat` / `Excessive Heat`), (`High Surf` / `Storm Surge`), and (`Cold` / `Extreme Cold`), and (`Flood` / `Flash Flood`).
 
-The NWS instructions generally recommend more extreme events to be follow more specific requirements. For example:
+The NWS instructions list specific thresholds or requirements. For example:
 
->...if blizzard-like conditions occur for less than 3 hours, the event should be entered as a Winter Storm, Heavy Snow, or Winter Weather (p. 92).
+> ...if blizzard-like conditions occur for less than 3 hours, the event should be entered as a Winter Storm, Heavy Snow, or Winter Weather (p. 92).
 
-And so blizzard events were reserved for those explicitly named as such.
+Thus, blizzard events were reserved for those explicitly named as such.
 
 Coastal storms and coastal erosion were regarded as `Storm Surge/Tide` events because they were not specifically attributed to tropical depressions, and from the NWS language, not merely events of high surf.
 
-#### A preference for more specific events
+#### A Preference for Specific Events
 
-In the case of `EVTYPE` naming two very distinct categories, the more specific occurrence is preferred. For example, floods, drought, and surf are preferred if they are named along with other general events (such as "heat" or "rain"). 
+In the case of `EVTYPE` naming two very distinct categories, the more specific occurrence is preferred. For example, floods, drought, avalanches, and surf are preferred if they are named along with other general events (such as "heat" or "rain"). 
 
 When thunderstorm winds are mentioned alongside either lightning or hail, the latter is preferred as the more specific feature likely to be specified in the damage record.
 
-#### Flash flood language
+#### Debris Flow 
+The event formerly known as "landslide" was modified to fall under the `Debris Flow` category explicitly in instruction 10-1605. We have also taken "Mudslides" in this category.
+
+#### Flooding
 The `Flash Flood` event type is characterized by:
 
 > ...rapid and extreme flow of high water into a normally dry area, or a rapid water level rise in a stream or creek  above a predetermined flood level, beginning within six hours of the causative event (e.g., intense rainfall, dam failure, ice jam-related) (p.32).
 
 As a result, dam failure events and ice jam (except minor) were categorized as `Flash flood`, while most other non-coastal floods were catagorized as `Flood`. As is the case with other categories, the distinction between the two can be a judgment call even for the preparer entering the data.
 
-#### Additional thunderstorm categories
+Some `EVTYPE` coerced to flooding don't contain the word "flood" itself, but the term "Urban Flooding" is used exclusively in a flooding context, and as such "Urban" only events were also regarded as floods.
+
+#### Thunderstorms
 
 Downbursts, microbursts, and gustnadoes are explicitly defined to fall under the `Thunderstorm Wind` category (p. 70-71).
 
-#### Gradient wind
+#### Gradient Wind
 
 Gradient winds appear to be regarded in the NWS language as a feature of `Tropical Depressions`, and they are categorized this way. This is consistent with overall coercion methods; such coercions were in cases where more extreme events such as `Hurricane` and `Tropical Storm` were not specifically named, and the existence of a pressure gradient indicates greater specificity than other wind categories (`Strong Wind` and `High Winds`). Additionally, `EVTYPE` naming gradient wind were the only damage-causing entries for `Tropical Depression` to appear in the NWS instructions. 
 
-#### Winter weather and snow 
+#### Tornadoes and Waterspouts
 
-`Winter Weather` was defined as encompassing "one or more winter precipitation types" (p. 92) and `Winter Storm` was regarded as an event featuring "more than one significant hazard" (p. 91) but not rising to the level of a `Blizzard`. These guidelines were followed, but it should be noted that many of the distinctions are subject to interpretation.
+In cases where these two categories both named in `EVTYPE`, we elected to categorize as a waterspout, on the grounds that the latter is more specific. Instructions specify that damage on land is to be classified `Tornado` while damage over water is to be specified `Waterspout`; our interpretation is that any "Waterspout" designation specifically indicates the waterspout portion of a tornado event.
 
-"Mixed precipitation" events were regarded to fall into the `Winter Weather` category. This included an `EVTYPE` named only as `HEAVY MIX` given language conventions adopted throughout the data as well as the NWS guide. In general, winter weather events not fitting a specific category via other guidelines defaulted to `Winter Weather`.
+Landspouts, on the other hand, are explicitly designated as Tornado events.
 
-"Snow squalls" are defaulted to the `Heavy Snow` category, while `EVTYPE` naming heavy snow in conjunction with a disparate precipitation or wind event were categorized as "Winter Storm".
+#### Winter Weather
+
+`Winter Weather` was defined as encompassing "one or more winter precipitation types that...does not meet locally/regionally defined warning criteria" (p. 92). We prefer it to encompass most events that do not make a strong case for inclusion in another winter category. 
+
+Single, multiple and "Mix" winter precipitation events (including snow squalls, "thundersnow", and "Heavy Mix") were categorized as `Winter Weather` unless two or more categories named are more extreme events that meet warning criteria. A set of "Heavy Snow Squall" `EVTYPE` were regarded as `Heavy Snow` instead by the specificity guideline.
+
+Ice events that do not explicitly make clear that accumulation meets warning threshold were also categorized here.
+
+#### Winter Storms
+
+A `Winter Storm` is defined an event featuring "more than one significant hazard" (p. 91) and meets a warning criteria, but not rising to the level of a `Blizzard`.
+
+Examples of this included "snow and ice", "snow and sleet", "sleet and ice", "heavy snow and blowing snow", and "snow, sleet, and ice". If it's not clear that a local warning criteria of some kind has been met (for example, by "High Winds", "Sleet", or "Heavy Snow"), then we default to the weaker classification of `Winter Weather` in keeping with a conservative communicated approach regarding `Winter Storm`:
 
 Blizzards, as previously noted, were reserved for events specifically named as such.
 
-#### "Other" events.
+#### "Other" Events.
 
 There remained events that were not coerced to any of the existing 48 NWS categories. These were instead coerced to one of the following categories:
 
@@ -392,8 +408,10 @@ There remained events that were not coerced to any of the existing 48 NWS catego
       "URBAN FLOODS",
       "HEAVY RAIN/SMALL STREAM URBAN",
       "URBAN/SML STREAM FLD",
-      "URBAN AND SMALL"
+      "URBAN AND SMALL",
+      "HEAVY SNOW/HIGH WINDS & FLOOD"
     ),
+    "FREEZING FOG" = "FREEZING FOG",
     "FROST/FREEZE" = c(
       "Frost/Freeze",
       "FREEZE",
@@ -406,7 +424,11 @@ There remained events that were not coerced to any of the existing 48 NWS catego
       "Damaging Freeze",
       "Early Frost"
     ),
-    "FREEZING FOG" = "FREEZING FOG",
+    "FUNNEL CLOUD" = c (
+      "FUNNEL CLOUD",
+      "FUNNEL",
+      "THUNDERSTORM WINDS/FUNNEL CLOU"
+    ),
     "HAIL" = c(
       "THUNDERSTORM HAIL",
       "THUNDERSTORM WINDSHAIL",
@@ -461,23 +483,16 @@ There remained events that were not coerced to any of the existing 48 NWS catego
       "HEAVY SHOWER"
     ),
     "HEAVY SNOW" = c(
-      "SNOW SQUALLS",
-      "SNOW SQUALL",
-      "RECORD SNOW",
-      "Snow Squalls",
-      "EXCESSIVE SNOW",
-      "HEAVY RAIN/SNOW",
       "SNOW AND HEAVY SNOW",
       "SNOW/HEAVY SNOW",
-      "HEAVY SNOW/FREEZING RAIN",
-      "HEAVY SNOW/ICE",
-      "HEAVY SNOW AND HIGH WINDS",
+      "Heavy snow shower",
       "HEAVY SNOW SQUALLS",
       "HEAVY SNOW/SQUALLS",
       "HEAVY SNOW-SQUALLS",
-      "Heavy snow shower",
-      "HIGH WIND/HEAVY SNOW",
-      "HEAVY SNOW/WIND"
+      "HEAVY SNOWPACK",
+      "HEAVY SNOW/WIND",
+      "HEAVY SNOW/FREEZING RAIN",
+      "HEAVY SNOW AND STRONG WINDS"
     ),
     "HIGH SURF" = c(
       "High Surf",
@@ -519,6 +534,10 @@ There remained events that were not coerced to any of the existing 48 NWS catego
       "HURRICANE FELIX",
       "Hurricane Edouard",
       "TYPHOON"
+    ),
+    "ICE STORM" = c(
+      "ICE STORM",
+      "GLAZE/ICE STORM"
     ),
     "LAKE-EFFECT SNOW" = c(
       "HEAVY LAKE SNOW",
@@ -656,19 +675,10 @@ There remained events that were not coerced to any of the existing 48 NWS catego
       "Gustnado"
     ),
     "TORNADO" = c(
-      "FUNNEL CLOUD",
-      "FUNNEL",
-      "WATERSPOUT",
       "TORNADO F3",
       "TORNADO F0",
-      "WATERSPOUT/TORNADO",
-      "WATERSPOUT TORNADO",
-      "WATERSPOUT-TORNADO",
-      "WATERSPOUT-",
       "TORNADOES, TSTM WIND, HAIL",
       "COLD AIR TORNADO",
-      "WATERSPOUT/ TORNADO",
-      "DUST DEVIL WATERSPOUT",
       "TORNADO",
       "TORNDAO",
       "TORNADO F1",
@@ -676,8 +686,7 @@ There remained events that were not coerced to any of the existing 48 NWS catego
       "TORNADOES",
       "Whirlwind",
       "LANDSPOUT",
-      "WHIRLWIND",
-      "THUNDERSTORM WINDS/FUNNEL CLOU"
+      "WHIRLWIND"
     ),
     "TROPICAL DEPRESSION" = c(
       "Gradient wind",
@@ -701,18 +710,29 @@ There remained events that were not coerced to any of the existing 48 NWS catego
       "WILD/FOREST FIRES",
       "BRUSH FIRE"
     ),
+    "WATERSPOUT" = c(
+      "WATERSPOUT",
+      "DUST DEVIL WATERSPOUT",
+      "WATERSPOUT/TORNADO",
+      "WATERSPOUT TORNADO",
+      "WATERSPOUT-TORNADO",
+      "WATERSPOUT/ TORNADO",
+      "WATERSPOUT-"
+    ),
     "WINTER WEATHER" = c(
       "MIXED PRECIP",
       "Mixed Precipitation",
       "MIXED PRECIPITATION",
       "ICE",
       "SNOW",
-      "HEAVY SNOWPACK",
       "BLOWING SNOW",
       "GLAZE",
       "RAIN/SNOW",
       "GLAZE ICE",
-      "ICE FLOES",
+      "SNOW/ ICE",
+      "SNOW/ICE",
+      "ICE AND SNOW",
+      "SNOW AND ICE",
       "SNOW/COLD",
       "ICY ROADS",
       "SNOW/ BITTER COLD",
@@ -740,33 +760,34 @@ There remained events that were not coerced to any of the existing 48 NWS catego
       "Freezing drizzle",
       "LIGHT FREEZING RAIN",
       "FREEZING RAIN",
-      "HEAVY MIX"
+      "HEAVY MIX",
+      "FREEZING RAIN/SNOW",
+      "SNOW/BLOWING SNOW",
+      "SNOW FREEZING RAIN",
+      "SNOW/FREEZING RAIN",
+      "SNOW SQUALLS",
+      "SNOW SQUALL",
+      "RECORD SNOW",
+      "Snow Squalls",
+      "EXCESSIVE SNOW",
+      "ICE/STRONG WINDS",
+      "HIGH WINDS/SNOW",
+      "SNOW/HIGH WINDS",
+      "THUNDERSNOW"
     ),
     "WINTER STORM" = c(
-      "ICE STORM",
       "SLEET/ICE STORM",
-      "SNOW AND ICE STORM",
-      "GLAZE/ICE STORM",
       "HEAVY SNOW/WINTER STORM",
-      "SNOW/ICE STORM",
-      "ICE/STRONG WINDS",
-      "SNOW/HIGH WINDS",
-      "HIGH WINDS/SNOW",
-      "HEAVY SNOW AND STRONG WINDS",
-      "HEAVY SNOW/HIGH WINDS & FLOOD",
       "WINTER STORM HIGH WINDS",
       "WINTER STORMS",
-      "SNOW/ICE",
-      "SNOW/SLEET/FREEZING RAIN",
-      "THUNDERSNOW",
-      "SNOW AND ICE",
-      "SNOW FREEZING RAIN",
+      "HEAVY SNOW AND HIGH WINDS",
+      "HIGH WIND/HEAVY SNOW",
       "SNOW/SLEET",
-      "SNOW/FREEZING RAIN",
-      "ICE AND SNOW",
-      "SNOW/BLOWING SNOW",
-      "SNOW/ ICE",
-      "FREEZING RAIN/SNOW"
+      "HEAVY SNOW/ICE",
+      "SNOW AND ICE STORM",
+      "SNOW/ICE STORM",
+      "SNOW/SLEET/FREEZING RAIN",
+      "HEAVY RAIN/SNOW"
     ),
     "X-MARINE" = c(
       "MARINE MISHAP",
@@ -787,17 +808,20 @@ There remained events that were not coerced to any of the existing 48 NWS catego
       "OTHER",
       "?",
       "Other",
+      "ICE FLOES",
       "DROWNING"
     )
   )
 ```  
-Under the guidelines documented above, we construct a manual mapping list named `event.coercion` (hidden here due to its verbosity, but reproduced by reference in full in the **Appendix**) to re-level the existing `EVTYPE` factor to our set of coerced choices. We chose a manual mapping over pattern matching for reproducibility, so it is clear exactly where `EVTYPE` in the data is mapped.
+Under the guidelines documented above, we construct a manual mapping list named `event.coercion` (see **Appendix C** for the construction code) to re-level the existing `EVTYPE` factor to our set of coerced choices. We chose a manual mapping over pattern matching for reproducibility, so it is clear exactly where `EVTYPE` in the data is mapped.
 
 ```{r process_data_final}
   
    # Coerce EVTYPE to new `event` variable using mappling list.
   dt.sum$event <- dt.sum$EVTYPE
   levels(dt.sum$event) <- event.coercion
+  
+  dt.sum[which(is.na(event))]
   
   # Resum dataset observations by coerced `event` variable.
   dt.results <- dt.sum[, 
@@ -817,15 +841,19 @@ Under the guidelines documented above, we construct a manual mapping list named 
   # Ensure no NAs have resulted from EVTYPE coercion.
   complete.cases(unique(dt.sum$event))
 ```  
+Note that there are three "Other" event types included in `dt.results`.
+
 With the `EVTYPE` so coerced in the new `event` variable, we are now ready to present results.
 
 ## Results
 
+We represent our results in two single panel plots, one for personal health impact and one for economic impact. 
+
+Despite the wide spread of the data, we chose not to use a log scale in order to more clearly illustrate the gulf of the discrepancy between top events and lower events.
+
+Another aim of the panel plot is to illustrate relative percentages of total personal or economic impact from each of the constituent categories. For example, if injuries outnumber fatalities significantly, we want this to be visually apparent.
+
 ### Person Impact
-
-We represent fatalities, injuries, and total person count in the following panel plot, using a **base-10 log scaling** for the axis of values. We chose a log scale due to the significant distance between the many events on the lower end of the scale and the few at the top. Note that while the scale is log, the values are the actual observed data.
-
-*n.b.* values plotted are $(value + 1)$ to accomodate the log scale, because $log(0)$ is not defined.
 
 ```{r results_plot_person, fig.width = 10, fig.height = 8, fig.cap = "Figure 1: Results (Person)"}
   # Melt data to narrow form for plotting.
@@ -847,12 +875,11 @@ We represent fatalities, injuries, and total person count in the following panel
     levels = dt.person[order(-Total)]$event
   )
   
-  # Bar plot on log10 scale.
-  ggplot(melt.person, aes(x = eventOrder, y = value + 1, fill = eventOrder)) +
+  # Bar plot.
+  ggplot(melt.person, aes(x = eventOrder, y = value, fill = eventOrder)) +
     geom_bar(stat = "identity") + coord_flip() +
     facet_grid(.~ variable) +
     theme(legend.position="none") +
-    scale_y_log10(breaks = c(10, 100, 500, 100, 1000, 2500, 10000, 25000)) +
     theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
     labs(x = "Event Type\n", y = "\nPerson Count") +
     labs(title = "Personal Harm from Severe Weather Events in the U.S. 1993-2011\n")
@@ -862,13 +889,46 @@ In terms of total person count impact, we observe the following Top 5:
 ```{r results_person_top_5}
   dt.person[1:5]
 ```  
-It bears noting that "heat" and "flood" related events also appear just outside of the Top 5. **Tornadoes** are overwhelming top offenders with a significant gap. Among events next in line, it bears noting that many of them are related. In taking a broad view of the related categories, **heat**, **flood**, and **thunderstorm** related weather phenomena stand out as the other significant personal harm causers. Cold weather and winter related events also have an impact, but perhaps to not as great an extent.
+
+**Tornadoes** are overwhelmingly top offenders, with a significant share of their personal health impact coming from injuries rather than fatalities. In fatalities alone, **heat** related events figure most prominently.
+
+In bears noting that many of the top events in this order are also closely related. We continue our analysis by grouping contributors into related categories.
+
+#### Percentages By Tier
+```{r results_person_percentage, warning = FALSE, message = FALSE}
+  # Organize contributing events by tiers.
+  tiers.person <- list(
+    tornado = "TORNADO",
+    heat = c("EXCESSIVE HEAT", "HEAT"),
+    flood = c("FLOOD", "FLASH FLOOD"),
+    thunderstorm = c("THUNDERSTORM WIND", "LIGHTNING"),
+    winter = c(
+      "ICE STORM", "WINTER STORM", "WINTER WEATHER",
+      "HEAVY SNOW", "BLIZZARD", "SLEET",
+      "EXTREME COLD/WIND CHILL", "COLD/WIND CHILL"
+    ),
+    misc = c(
+      "HURRICANE/TYPHOON", "TROPICAL STORM",
+      "HEAVY RAIN", "STRONG WIND", "HIGH WIND",
+      "HIGH SURF", "RIP CURRENT",
+      "HAIL", "DENSE FOG", "DUST STORM",
+      "AVALANCHE", "WILDFIRE"
+    )
+  )
+  
+  # Report percentage of total impact from each tier.
+  report.people <- as.data.table(lapply(tiers.person, 
+    function(e) {
+      100 * sum(dt.person[event %in% e]$Total) /
+    sum(dt.person$Total)
+    }
+  ))
+  
+  # Add sum percentage of all tiers.
+  melt(report.people[, "Total %" := sum(report.people[1])])[order(-value)]
+```
 
 ### Economic Impact
-
-We represent propert, crop, and total economic damage in reported unadjusted USD in the following panel plot, using a **base-10 log scaling** for the axis of values. We chose a log scale due to the significant distance between the many events on the lower end of the scale and the few at the top. Note that while the scale is log, the values are the actual observed data.
-
-*n.b.* values plotted are $(value + 1)$ to accomodate the log scale as $log(0)$ is not defined.
 
 ```{r results_plot_economic, fig.width = 10, fig.height = 8, fig.cap = "Figure 2: Results (Economic)"}
    # Melt data to narrow form for plotting.
@@ -889,13 +949,13 @@ We represent propert, crop, and total economic damage in reported unadjusted USD
     levels = dt.econ[order(-Total)]$event
   )
   
-  # Bar plot on log10 scale.
+  # Bar plot.
   ggplot(melt.econ, aes(x = eventOrder, y = value + 1, fill = eventOrder)) +
     geom_bar(stat = "identity") + coord_flip() +
     facet_grid(.~ variable) +
     theme(legend.position = "none") +
-    scale_y_log10(breaks = c(1e3, 1e6, 1e8, 1e10, 1e12, 1e13)) +
-    labs(x = "\nEvent Type", y = "(Unadjusted) USD\n") +
+    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+    labs(x = "Event Type\n", y = "\n(Unadjusted) USD") +
     labs(title = "Economic Damage (USD) from Severe Weather Events in the U.S. 1993-2011\n")
 ```  
 
@@ -911,49 +971,143 @@ In terms of total economic impact, we observe the following top 5 (in billions o
       "event" = event
     )
   ]
-  
 ```  
 
-Floods, hurricanes and storm surge events, and tornadoes are again preeminent among events in these categories. Droughts, winter events, and hail take on added prominence relating to crop damage. In this discussion we draw a relation between hurricane/typhoon events and "storm surge" events as similarly resulting from coastal storms.
+**Floods** are by an overwhelming margin the most costly sources of damage, with **hurricanes** and **storm surges** following, and we quickly approach order of magnitude differences to later events in the list.
 
-Notice that the differences even in the top 5 are significant. From the first event to the fifth event we approach an order of magnitude difference, which is on the order of 100 billion USD.
+**Droughts** bear special mention as the leading cause of crop damage. However, property damages comprise the bulk of economic costs of severe weather events in the U.S.
 
-### Regional biases
-
-It should be noted that there are well-known regional biases in different directions. While tornadoes are the greatest singular category by some distance, the "Tornado Alley" where such events are common is restricted primarily to the midwest regions of the country. Winter weather is far more common in the northern parts of the country and to a large extent absent in the southernmost points, while summer heat is less discriminate. 
-
-While regional evaluation of the data is beyond the scope of this report, which takes a broad nation-wide view, local general knowledge considerations should apply when preparing threat assessments.
-
-### Event frequency
-
-An event's position on the list does not reflect *damage per incidence* or *frequency of incidence*, but rather, cumulative damage. This single cumulative measure will tend to highlight events that are both costly and numerous. We do this to highlight overall impact patterns from storm events in the United States.
+#### Percentages By Tier
+```{r results_econ_percentage, warning = FALSE, message = FALSE}
+  # Organize contributing events by tiers.
+  tiers.econ <- list(
+    Flood = c("FLOOD", "FLASH FLOOD"),
+    Hurricane = c("HURRICANE/TYPHOON", "TROPICAL STORM"),
+    "Storm Surge" = c("STORM SURGE/TIDE", "COASTAL FLOOD"),
+    Tornado = "TORNADO",
+    Winter = c("ICE STORM", "WINTER STORM", "FROST/FREEZE", 
+      "EXTREME COLD/WIND CHILL", "HEAVY SNOW", "BLIZZARD"),
+    Storms = c("THUNDERSTORM WIND", "HIGH WIND", "HEAVY RAIN"),
+    Hail = "HAIL",
+    Drought = "DROUGHT",
+    Wildfire = "WILDFIRE"
+  )
+  
+  # Report percentage of total impact from each tier.
+  report.econ <- as.data.table(lapply(tiers.econ, 
+    function(e) {
+      100 * sum(dt.econ[event %in% e]$Total) /
+    sum(dt.econ$Total)
+    }
+  ))
+  
+  # Add sum percentage of all tiers.
+  melt(report.econ[, "Total %":= sum(report.econ[1])])[order(-value)]
+```
 
 ## Summary
 
-**Flooding**, **thunderstorm winds**, **winter storms**, and **tornadoes** stand out as the top offenders for severe weather events across *both* personal and economic measures of impact. 
+A lightly overlapping set of events (tornadoes, storms, winter events) are contributors in different degrees to both categories. Broadly speaking, the event profiles are quite different.
 
-**Heat** related events featured very prominently only in relation to personal harm caused, while **Hurricanes**, **Storm surges**, **hail**, and **droughts** were among those leaping to prominence primarily in economic impact.
+#### Top personal health impact events
 
+Tornados are primarily response for record personal health damage in the United States. 
 
+A quartet of related categories (listed here) each contribute sizably to the person count, and a numer of miscellaneous categories fill in the remainder. Overall, the causes of personal health damage in the U.S. are quite diverse.
 
+1. Tornado  
+1. Thunderstorms, Heat-related events, Flooding, and Winter-related events
+1. Miscellaneous low-order impact event types
 
-## Appendix
+#### Top economic impact events
 
-### Full list of damage-causing EVTYPEs
+Over 70% of total economic consequences are concentrated in the top three event types.
+
+Beyond that, a small collection of events contribute on the order of low single digit percentage points each. 
+
+1. Flooding  
+1. Hurricanes/Typhoons, and Tropical Storms 
+1. Storm Surges
+1. Tornadoes, Storms (winds and rains), Winter events, Jail, Drought, and Wildfire (all on a much smaller scale)
+
+#### Caveats
+
+The results of this study bear a number of caveats and context notes.
+
+1. Source data was messy and required significant cleaning, which is documented but not certified by the NWS or NOAA.
+1. Only cumulative impact was considered, rather than impact *incidence* or *average* impact. The focus was on a "sum total" picture of recorded data in the United States.
+1. Variations in event incidence across regions was not considered. This report has a nationwide focus; those applying it towards local considerations are advised to bear local weather behavior and trends in mind.
+
+## Appendices
+
+### Appendix A: The 48 NWS event types
+
+These are defined and explained in NWS Instruction 10-1605. In our data, to avoid confusion, we have capitalized every letter in `event` names.
+
+1. Astronomical Low Tide  
+1. Avalanche  
+1. Blizzard  
+1. Coastal Flood  
+1. Cold/Wind Chill  
+1. Debris Flow  
+1. Dense Fog  
+1. Dense Smoke  
+1. Drought  
+1. Dust Devil  
+1. Dust Storm  
+1. Excessive Heat  
+1. Extreme Cold/Wind Chill  
+1. Flash Flood  
+1. Flood  
+1. Freezing Fog  
+1. Frost/Freeze  
+1. Funnel Cloud  
+1. Hail  
+1. Heat  
+1. Heavy Rain  
+1. Heavy Snow  
+1. High Surf  
+1. High Wind  
+1. Hurricane/Typhoon  
+1. Ice Storm  
+1. Lakeshore Flood  
+1. Lake-Effect Snow  
+1. Lightning  
+1. Marine Hail  
+1. Marine High Wind  
+1. Marine Strong Wind  
+1. Marine Thunderstorm  
+1. Rip Current  
+1. Seiche  
+1. Sleet  
+1. Storm Surge/Tide  
+1. Strong Wind  
+1. Thunderstorm Wind  
+1. Tornado  
+1. Tropical Depression  
+1. Tropical Storm  
+1. Tsunami  
+1. Volcanic Ash  
+1. Waterspout  
+1. Wildfire  
+1. Winter Storm  
+1. Winter Weather  
+
+### Appendix A: Full list of damage-causing EVTYPEs
 The following is a a full list of unique `EVTYPE` (excluding ones which never have recorded damages of any kind). All of these are explicitly mapped to either an official NWS event type designation or an "Other" category by the coercion mapping printed in the following section.
 
 ```{r appendix_unique_nonzero_evtype}
-  dt.sum[totalPerson > 0 | totalDamage > 0]$EVTYPE
+  sort(as.character(dt.sum[totalPerson > 0 | totalDamage > 0]$EVTYPE))
 ```  
 
-### Full coercion mapping code
-The construction of our coercion mapping list, in a variable named `event.coercion`, was hidden from view above to the length of the code chunk. It is reproduced by reference here in the Appendix for full documentation of all code used in this report.
+### Appendix B: Full coercion mapping code
+The construction of our coercion mapping list, in a variable named `event.coercion`, was hidden from view above to the length of the code chunk. It is reproduced by reference here in order to fully document all code used to prepare this report.
 
 ```{r duplicate_event_coercion, ref.label = "event_coercion_verbose"}
 ```
 
-### Full Results
-Our results were represented visually in the report. The full data, ordered by economic damage, is produced here in the Appendix as a detailed reference. The `xtable` package is used to present the `data.table` output in more readable format.
+### Appendix D: Full Results
+Our results were represented visually in the report. The full data is printed here as a detailed reference. The `xtable` package is used to present the `data.table` output in more readable format. This table is ordered by total economic impact (descending).
 
 ```{r appendix_full_data, results = "asis"}
   # Add "Totals" row to results summary.
@@ -990,6 +1144,6 @@ Our results were represented visually in the report. The full data, ordered by e
     caption.placement = "top"
   )
 ```
-### Final Remarks
-Thank you for taking the time to review my assignment. Your comments are appreciated!
+## Final Remarks
+Thank you for taking the time to review this report! Your comments and feedback are most appreciated.
 
